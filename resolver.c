@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <unistd.h>
+#include <time.h>
 
 #define TEMP_BUF_LEN	1024
 #define BUFFER_MAX	1024
@@ -117,11 +118,11 @@ int name_ascii_to_wire(char *name, unsigned char *wire) {
 	//  	*name, *(name+1), *(name+2), *(name+3), *(name+4),
 	// 	*wire, *(wire+1), *(wire+2), *(wire+3), *(wire+4));
 
-	 printf("Putting");
-	 print_bytes(name, 5);
-	 printf(" into ");
-	 print_bytes(wire, 5);
-
+	//  printf("Putting");
+	//  print_bytes(name, 5);
+	//  printf(" into ");
+	//  print_bytes(wire, 5);
+	unsigned char* wireStart = wire;
 	 unsigned char* currentCount = wire; // Represents pointer to the count preceding each segment of the name.
 	 *currentCount = 0; // Start the count at 0.
 	 wire++; // We will start assigning values at the 1st index of the array.
@@ -137,7 +138,8 @@ int name_ascii_to_wire(char *name, unsigned char *wire) {
 		 name++;
 		//  printf("New wire: %x New Count: %x\n", (unsigned)wire,(unsigned)currentCount);
 	 }
-	 return strlen(wire);
+	 *wire = 0x00;
+	 return strlen(wireStart);
 }
 
 char *name_ascii_from_wire(unsigned char *wire, int *indexp) {
@@ -208,6 +210,26 @@ unsigned short create_dns_query(char *qname, dns_rr_type qtype, unsigned char *w
 	 *               message should be constructed
 	 * OUTPUT: the length of the DNS wire message
 	 */
+	wire[0] = rand();
+	wire[1] = rand();
+	wire[2] = 0x01;
+	wire[3] = 0x00;
+	wire[4] = 0x00;
+	wire[5] = 0x01;
+	wire[6] = 0x00;
+	wire[7] = 0x00;
+	wire[8] = 0x00;
+	wire[9] = 0x00;
+	wire[10] = 0x00;
+	wire[11] = 0x00;
+	int queryLen = name_ascii_to_wire(qname, &(wire[12]));
+	printf("Length of query: %d\n", queryLen);
+	int nextLoc = 12 + queryLen + 1;
+	wire[nextLoc] = 0x00;
+	wire[++nextLoc] = 0x01;
+	wire[++nextLoc] = 0x00;
+	wire[++nextLoc] = 0x01;
+	return nextLoc+1; // Final element + 1 
 }
 
 char *get_answer_address(char *qname, dns_rr_type qtype, unsigned char *wire) {
@@ -315,23 +337,24 @@ int send_recv_message(unsigned char *request, int requestlen, unsigned char *res
 	 * OUTPUT: the size (bytes) of the response received
 	 */
 	 
-	 //  printf("Attempting to connect to %s on port %d\n", server, port);
+	  printf("Attempting to connect to %s on port %d\n", server, port);
 	 int sock = create_udp_socket(server, port);
-	//  printf("Got socket! %d\n", sock);
+	 printf("Got socket! %d\n", sock);
 	 int send_status = send_comm(sock, request, requestlen);
 	 if(send_status != 0){
-		//  printf("Error sending request to server.\n");
+		 printf("Error sending request to server.\n");
 	 }
-	//  printf("Sent Request!\n");
+	 printf("Sent Request!\n");
 	const int RECEIVE_BUFFER_SIZE = 512;
 	 recv_comm(sock, response, RECEIVE_BUFFER_SIZE);
-	//  print_bytes(response, 49);
+	 print_bytes(response, 49);
 }
 
 char *resolve(char *qname, char *server) {
 }
 
 int main(int argc, char *argv[]) {
+    srand(time(NULL));
 	// ascii to wire test ************************************
 	char wire[5];
 	char* str = "i.a$";
@@ -339,24 +362,27 @@ int main(int argc, char *argv[]) {
 		wire[i] = 0;
 	}
 	name_ascii_to_wire(str, wire);
-	printf("Wire: {%x, %x, %x, %x, %x}\n", wire[0], wire[1], wire[2], wire[3], wire[4]);
+	// printf("Wire: {%x, %x, %x, %x, %x}\n", wire[0], wire[1], wire[2], wire[3], wire[4]);
 	// print_bytes(wire, 5);
 	// *******************************************************
 
 	// send_rcv test *****************************************
-	unsigned char msg[] = {
-		0x27, 0xd6, 0x01, 0x00,
-		0x00, 0x01, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x03, 0x77, 0x77, 0x77,
-		0x07, 0x65, 0x78, 0x61,
-		0x6d, 0x70, 0x6c, 0x65,
-		0x03, 0x63, 0x6f, 0x6d,
-		0x00, 0x00, 0x01, 0x00,
-		0x01
-		};
+	unsigned char msg[BUFFER_MAX];
+	for(int i = 0; i < BUFFER_MAX; i++){
+		msg[i] = 0;
+	}
+	int queryLen = create_dns_query(argv[1], 0x01, msg);
+	printf("Final query length: %d\n", queryLen);
+	
+	print_bytes(msg, 50);
+	unsigned char request[queryLen];
+	for(int j = 0; j < queryLen; j++){
+		request[j] = msg[j];
+	}
+	//printf("Original random: %x\n", (msg[0] << 8) | msg[1]);
 	unsigned char recv_buffer[512];
-	send_recv_message(msg, 33, recv_buffer, argv[2], 53);
+	send_recv_message(request, queryLen, recv_buffer, argv[2], 53);
+	print_bytes(recv_buffer, 49);
 	// *******************************************************
 
 	char *ip;
