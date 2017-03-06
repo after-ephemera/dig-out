@@ -279,9 +279,9 @@ int recv_comm(int socket, unsigned char* buffer, int length) {
 	int bytes_read;
 	ptr = buffer;
 	bytes_left = length;
-	printf("Receiving...\n");
+	// printf("Receiving...\n");
 	bytes_read = recv(socket, ptr, bytes_left, 0);
-	printf("Bytes Read: %d", bytes_read);
+	// printf("Bytes Read: %d", bytes_read);
 	if (bytes_read < 0) {
 		if (errno == EINTR) {
 			// continue; // continue upon interrupt
@@ -295,7 +295,7 @@ int recv_comm(int socket, unsigned char* buffer, int length) {
 	}
 	ptr += bytes_read;
 	bytes_left -= bytes_read;
-	return 0;
+	return bytes_read;
 }
 
 int send_comm(int socket, unsigned char* buffer, int length) {
@@ -337,53 +337,52 @@ int send_recv_message(unsigned char *request, int requestlen, unsigned char *res
 	 * OUTPUT: the size (bytes) of the response received
 	 */
 	 
-	  printf("Attempting to connect to %s on port %d\n", server, port);
+	//   printf("Attempting to connect to %s on port %d\n", server, port);
 	 int sock = create_udp_socket(server, port);
-	 printf("Got socket! %d\n", sock);
+	//  printf("Got socket! %d\n", sock);
 	 int send_status = send_comm(sock, request, requestlen);
 	 if(send_status != 0){
-		 printf("Error sending request to server.\n");
+		//  printf("Error sending request to server.\n");
 	 }
-	 printf("Sent Request!\n");
+	//  printf("Sent Request!\n");
 	const int RECEIVE_BUFFER_SIZE = 512;
-	 recv_comm(sock, response, RECEIVE_BUFFER_SIZE);
-	 print_bytes(response, 49);
+	return recv_comm(sock, response, RECEIVE_BUFFER_SIZE);
+	//  print_bytes(response, 49);
 }
 
 char *resolve(char *qname, char *server) {
+
+	unsigned char msg[BUFFER_MAX]; // A buffered char array to hold the query.
+	for(int i = 0; i < BUFFER_MAX; i++){
+		msg[i] = 0; // Fill with zeroes..
+	}
+	int queryLen = create_dns_query(qname, 0x01, msg); // Create the query and get the length.
+
+	// printf("Final query length: %d\n", queryLen);
+	
+	// print_bytes(msg, queryLen); // Diagnostic for printing the request
+	unsigned char recv_buffer[512];
+	int bytes_read = send_recv_message(msg, queryLen, recv_buffer, server, 53);
+	printf("Bytes read from response: %d\n", bytes_read);
+	print_bytes(recv_buffer, bytes_read);
+	
+	return "Not working yet...";
 }
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
 	// ascii to wire test ************************************
-	char wire[5];
-	char* str = "i.a$";
-	for(int i = 0; i < 5; i++){
-		wire[i] = 0;
-	}
-	name_ascii_to_wire(str, wire);
+	// char wire[5];
+	// char* str = "i.a$";
+	// for(int i = 0; i < 5; i++){
+	// 	wire[i] = 0;
+	// }
+	// name_ascii_to_wire(str, wire);
 	// printf("Wire: {%x, %x, %x, %x, %x}\n", wire[0], wire[1], wire[2], wire[3], wire[4]);
 	// print_bytes(wire, 5);
 	// *******************************************************
 
-	// send_rcv test *****************************************
-	unsigned char msg[BUFFER_MAX];
-	for(int i = 0; i < BUFFER_MAX; i++){
-		msg[i] = 0;
-	}
-	int queryLen = create_dns_query(argv[1], 0x01, msg);
-	printf("Final query length: %d\n", queryLen);
 	
-	print_bytes(msg, 50);
-	unsigned char request[queryLen];
-	for(int j = 0; j < queryLen; j++){
-		request[j] = msg[j];
-	}
-	//printf("Original random: %x\n", (msg[0] << 8) | msg[1]);
-	unsigned char recv_buffer[512];
-	send_recv_message(request, queryLen, recv_buffer, argv[2], 53);
-	print_bytes(recv_buffer, 49);
-	// *******************************************************
 
 	char *ip;
 	if (argc < 3) {
