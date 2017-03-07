@@ -122,7 +122,7 @@ int name_ascii_to_wire(char *name, unsigned char *wire) {
 	//  print_bytes(name, 5);
 	//  printf(" into ");
 	//  print_bytes(wire, 5);
-	unsigned char* wireStart = wire;
+	 unsigned char* wireStart = wire;
 	 unsigned char* currentCount = wire; // Represents pointer to the count preceding each segment of the name.
 	 *currentCount = 0; // Start the count at 0.
 	 wire++; // We will start assigning values at the 1st index of the array.
@@ -142,7 +142,7 @@ int name_ascii_to_wire(char *name, unsigned char *wire) {
 	 return strlen(wireStart);
 }
 
-char *name_ascii_from_wire(unsigned char *wire, int *indexp) {
+int name_ascii_from_wire(unsigned char *wire, int *indexp, char* name) {
 	/* 
 	 * Extract the wire-formatted DNS name at the offset specified by
 	 * *indexp in the array of bytes provided (wire) and return its string
@@ -153,10 +153,36 @@ char *name_ascii_from_wire(unsigned char *wire, int *indexp) {
 	 * INPUT:  wire: a pointer to an array of bytes
 	 * INPUT:  indexp, a pointer to the index in the wire where the
 	 *              wire-formatted name begins
-	 * OUTPUT: a string containing the string representation of the name,
-	 *              allocated on the heap.
+	 * OUTPUT: the length of the original wire-formatted name.
 	 */
+	 int length = 1; // Start at 1 for the first chunksize.
+	 char* nameStart = name;
+	 unsigned char retBuf[BUFFER_MAX];
+	 int i = *indexp;
+	 unsigned char chunkSize = wire[i];
+	//  printf("First char: 0x%x\n", chunkSize);
+	 i++;
+	 while(chunkSize){
+		for(int j = 0; j < chunkSize; j++){
+			// printf("0x%x\n",wire[i+j]);
+			length++;
+			*name = wire[i+j];
+			name++;
+		}
+		unsigned char oldCS = chunkSize;
+		chunkSize = wire[i+chunkSize];
+		i = i+oldCS + 1;
+		// printf("new chunk size: %d\n", chunkSize);
+		if(chunkSize){
+			*name = '.';
+			name++;
+			length++;
+		}
+	 }
+	 *name = 0x00;
 
+	//  printf("Final name: %s\n", nameStart);
+	 return length;
 }
 
 dns_rr rr_from_wire(unsigned char *wire, int *indexp, int query_only) {
@@ -223,7 +249,7 @@ unsigned short create_dns_query(char *qname, dns_rr_type qtype, unsigned char *w
 	wire[10] = 0x00;
 	wire[11] = 0x00;
 	int queryLen = name_ascii_to_wire(qname, &(wire[12]));
-	printf("Length of query: %d\n", queryLen);
+	// printf("Length of qname: %d\n", queryLen);
 	int nextLoc = 12 + queryLen + 1;
 	wire[nextLoc] = 0x00;
 	wire[++nextLoc] = 0x01;
@@ -232,7 +258,22 @@ unsigned short create_dns_query(char *qname, dns_rr_type qtype, unsigned char *w
 	return nextLoc+1; // Final element + 1 
 }
 
-char *get_answer_address(char *qname, dns_rr_type qtype, unsigned char *wire) {
+void wire_to_string_ip(char* wire, int ipLength, char* ip){
+	// printf("IP Length: %d", ipLength);
+	int i = 0;
+	char* ipCurr = ip;
+	while(ipLength){
+		printf("ip: %u\n", (wire[i] & 0xff));
+		int chars = sprintf(ipCurr, (ipLength == 1) ? "%u":"%u.", (wire[i] & 0xff));
+		// printf("Chars: %d", chars); 
+		ipCurr += chars; 
+		i++;
+		ipLength--;
+	}
+	printf("FINAL: %s\n", ip);
+}
+
+char *get_answer_address(char *qname, dns_rr_type qtype, unsigned char *wire, char* answer) {
 	/* 
 	 * Extract the IPv4 address from the answer section, following any
 	 * aliases that might be found, and return the string representation of
@@ -243,6 +284,67 @@ char *get_answer_address(char *qname, dns_rr_type qtype, unsigned char *wire) {
 	 * INPUT:  wire: the pointer to the array of bytes representing the DNS wire message
 	 * OUTPUT: a string representing the IP address in the answer; or NULL if none is found
 	 */
+	 uint16_t id = (wire[0] << 8) | wire[1];
+	 printf("ID: 0x%x\n", id);
+	 uint16_t flags = (wire[2] << 8) | wire[3];
+	 printf("Flags: 0x%x\n", flags); // Should be 0x8180 for standard DNS query.
+	 uint16_t totalQs = (wire[4] << 8) | wire[5];
+	 printf("Total Questions: %d\n", totalQs);
+	 uint16_t totalAnswerRRs = (wire[6] << 8) | wire[7];
+	 printf("Total Answer RRs: %d\n", totalAnswerRRs);
+	 uint16_t totalAuthRRs = (wire[8] << 8) | wire[9];
+	 printf("Total Authority RRs: %d\n", totalAuthRRs);
+	 uint16_t totalAddlRRs = (wire[10] << 8) | wire[11];
+	 printf("Total Additional RRs: %d\n", totalAddlRRs);
+	 char* queryStart = &(wire[12]); // Save the location of the start of the queries.
+	 // We are going to assume there is only a single query because we only ever send one.	
+	 unsigned char nameBuf[512];
+	 int i = 12;
+	 name_ascii_from_wire(wire, &i, nameBuf);
+	 printf("Got name: %s with length %d\n", nameBuf, (int)strlen(nameBuf));
+	 
+	//  uint16_t queryType = (uint16_t) *(queryStart + strlen(nameBuf) + 1);
+	//  printf("Query Type: 0x%x\n", queryType);
+	//  uint16_t queryClass = *(queryStart + strlen(nameBuf) + 2);
+
+	int answerNumber = 1;
+	// The first answer rr...
+	char* answerRRPtr = queryStart + strlen(nameBuf) + 6;
+	// Run through all answer rrs until we've found the right one.
+	while(answerNumber <= totalAnswerRRs){
+		// printf("Answer RR first Char 0x%2x\n", (*answerRRPtr) & 0xff);
+
+		// If the first two bits of the answer RR are set, then the name has been compressed.
+		unsigned char ownerName[BUFFER_MAX];
+		int j = 0;
+		if((*answerRRPtr & 0xC0) == 0xC0){
+			printf("Compressed encoding\n");
+			answerRRPtr += 2;
+			j = *answerRRPtr;
+			name_ascii_from_wire(queryStart, &j, ownerName);
+			printf("Got uncompressed name: %s\n", ownerName);
+			uint16_t answerType = (*(answerRRPtr + 2) << 8) | *(answerRRPtr + 3);
+			answerRRPtr += 3;
+			printf("Answer type: 0x%x\n", answerType);
+			// If the names match and the answerType is 1...
+			if(!(strcmp(ownerName, qname)) && answerType == 0x01){
+				// ... then we have found our address!
+				answerRRPtr += 5;
+				int rDataLength = (*(answerRRPtr) << 8) | *(answerRRPtr + 1);
+				printf("Length of Rdata: 0x%x\n", rDataLength);
+				answerRRPtr += 2;
+				char stringIP[BUFFER_MAX];
+				wire_to_string_ip(answerRRPtr, rDataLength, stringIP);
+				strncpy(answer, answerRRPtr, rDataLength);
+				// print_bytes(answerRRPtr, rDataLength);
+			}
+		} else{
+			name_ascii_from_wire(queryStart, &j, ownerName);
+			printf("Got owner name: %s\n", ownerName);
+		}
+		answerNumber++;
+		break;
+	}
 }
 
 int create_udp_socket(char* server, short port) {
@@ -356,9 +458,10 @@ char *resolve(char *qname, char *server) {
 	for(int i = 0; i < BUFFER_MAX; i++){
 		msg[i] = 0; // Fill with zeroes..
 	}
-	int queryLen = create_dns_query(qname, 0x01, msg); // Create the query and get the length.
+	dns_rr_type type = 0x01;
+	int queryLen = create_dns_query(qname, type, msg); // Create the query and get the length.
 
-	// printf("Final query length: %d\n", queryLen);
+	printf("Final request length: %d\n", queryLen);
 	
 	// print_bytes(msg, queryLen); // Diagnostic for printing the request
 	unsigned char recv_buffer[512];
@@ -366,12 +469,21 @@ char *resolve(char *qname, char *server) {
 	printf("Bytes read from response: %d\n", bytes_read);
 	print_bytes(recv_buffer, bytes_read);
 	
+	// We will need to parse the response and analyze it to grab the final IP.
+	char answer_buffer[BUFFER_MAX];
+	get_answer_address(qname, type, recv_buffer, answer_buffer);
+	printf("resolve\n");
+	print_bytes(answer_buffer, 4);
+	// printf("ANSWER: %s", answer_buffer);
+	char* returnPtr = answer_buffer;
+	// return answer_buffer;
+	return returnPtr;
 	return "Not working yet...";
 }
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
-	// ascii to wire test ************************************
+	// ascii name to wire test ************************************
 	// char wire[5];
 	// char* str = "i.a$";
 	// for(int i = 0; i < 5; i++){
@@ -381,8 +493,15 @@ int main(int argc, char *argv[]) {
 	// printf("Wire: {%x, %x, %x, %x, %x}\n", wire[0], wire[1], wire[2], wire[3], wire[4]);
 	// print_bytes(wire, 5);
 	// *******************************************************
-
 	
+	// ascii name from wire test *********************************
+	// char wire[10] = {0, 0, 0x03, 0x64, 0x65, 0x66, 0x01, 0x67, 0x00, 0x00}; // junk then def.g
+	// int i = 2;
+	// int* ind = &(i);
+	// unsigned char nameBuf[512];
+	// name_ascii_from_wire(wire, ind, nameBuf);
+	// return 1;
+	// ***********************************************************
 
 	char *ip;
 	if (argc < 3) {
@@ -390,5 +509,7 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 	ip = resolve(argv[1], argv[2]);
+	printf("IP: ");
+	print_bytes(ip, 4);
 	printf("%s => %s\n", argv[1], ip == NULL ? "NONE" : ip);
 }
