@@ -239,26 +239,6 @@ dns_rr* rr_from_wire(unsigned char* queryStart, unsigned char **answerRRPtr, int
 	}
 }
 
-
-int rr_to_wire(dns_rr rr, unsigned char *wire, int query_only) {
-	/* 
-	 * Convert a DNS resource record struct to DNS wire format, using the
-	 * provided byte array (wire).  Return the number of bytes used by the
-	 * name in wire format.
-	 *
-	 * INPUT:  rr: the dns_rr struct containing the rr record
-	 * INPUT:  wire: a pointer to the array of bytes where the
-	 *             wire-formatted resource record should be constructed
-	 * INPUT:  query_only: a boolean value (1 or 0) which indicates whether
-	 *              we are constructing a full resource record or only a
-	 *              query (i.e., in the question section of the DNS
-	 *              message).  In the case of the latter, the ttl,
-	 *              rdata_len, and rdata are skipped.
-	 * OUTPUT: the length of the wire-formatted resource record.
-	 *
-	 */
-}
-
 unsigned short create_dns_query(char *qname, dns_rr_type qtype, unsigned char *wire) {
 	/* 
 	 * Create a wire-formatted DNS (query) message using the provided byte
