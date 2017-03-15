@@ -1,7 +1,7 @@
 # dig-out
 A simple DNS Stub Resolver in C.
 
-###Have you ever just wanted to take a URL, send it out to a recursive resolver, and find out which IP the URL resolves to? 
+### Have you ever just wanted to take a URL, send it out to a recursive resolver, and find out which IP the URL resolves to? 
 ... if so you're in luck!
 
 Dig Out is a relatively dumb DNS stub resolver provided here as proof that the internet is not, in fact, magic; it's 
